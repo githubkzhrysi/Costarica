@@ -16,8 +16,13 @@ public class GameManager : MonoBehaviour
     public LayerMask tileMask;
     public LayerMask playerMask;
     public Text masterNoticeText;
-    public GameObject ContinueAskPannel;
-    public Text ContinueAskText;
+    public GameObject continueAskPannel;
+    public GameObject passConfirmPanel;
+    public Button passYesBtn;
+    public Button passNoBtn;
+    public Button capturedAnimalPanelBtn;
+    public GameObject capturedAnimalAnnouncePanel;
+    public Text animalText;
 
     int playerNum;
     int turn;
@@ -34,8 +39,9 @@ public class GameManager : MonoBehaviour
     bool PNIsDone = false;
     bool pieceSelectIsDone = false;
     bool isDead = false;
-    bool isSick = false;
     bool stopSelect = false;
+    bool isSickAnimals;
+    //bool newTurnReady = true;
 
 
 
@@ -44,7 +50,7 @@ public class GameManager : MonoBehaviour
     List<Vector3> MovableTiles = new List<Vector3>();
     RaycastHit selected;
     List<List<int[]>> AnimalCapturedList= new List<List<int[]>>();
-    List<int[]> AnimalWithDisease = new List<int[]>();
+    List<List<int[]>> AnimalWithDiseaseList = new List<List<int[]>>();
     Dictionary<int, string> animalInfo = new Dictionary<int, string>()
     {
         {10,"サル" },
@@ -53,7 +59,6 @@ public class GameManager : MonoBehaviour
         {21,"ワニ" },
         {30,"オウム" },
         {31,"ヒョウ" }
-
     };
 
     // Start is called before the first frame update
@@ -76,6 +81,11 @@ public class GameManager : MonoBehaviour
         {
             
             AnimalCapturedList.Add(new List<int[]>());
+        }
+        //病気の動物の把握リスト作成
+        for (int i = 0; i< playerNum; i++)
+        {
+            AnimalWithDiseaseList.Add(new List<int[]>());
         }
 
         turn = 1;
@@ -104,7 +114,7 @@ public class GameManager : MonoBehaviour
             {
                 
                 foreach (Vector3 v3 in PlyrsPos)
-                {
+                {                    
                     EffectOn(v3);
                 }
             }
@@ -116,22 +126,26 @@ public class GameManager : MonoBehaviour
                 RaycastHit hit;
                 if (Physics.Raycast(ray, out hit, 100.0f, playerMask))
                 {
-                    Vector3 selectedPlyrPos = hit.collider.gameObject.transform.parent.gameObject.transform.position;;
-                    //if (cg.plyrPieceLeft[plyr, int.Parse(selectedPlyrPiece.tag)] == 1)
-                    //{
+                    string selectedTag = hit.collider.gameObject.transform.parent.gameObject.tag;
+                    stopSelect = true;
+                    if (cg.plyrPieceLeft[plyr, int.Parse(selectedTag)] == 1)
+                    {
+                        stopSelect = false;
+                        Vector3 selectedPlyrPos = hit.collider.gameObject.transform.parent.gameObject.transform.position;                   
                         pieceSelectIsDone = true;
                         selectedPlyrPiece = hit.collider.gameObject.transform.parent.gameObject;
-                    //}
-                    //else
-                    //{
-                    //    masterNoticePanel.SetActive(true);
-                    //    masterNoticeText.text = "その隊にはあなたの隊員はいません";
-                    //}                    
+                    }
+                    else
+                    {
+                        masterNoticePanel.SetActive(true);
+                        masterNoticeText.text = "その隊にはあなたの隊員はいません";
+                    }                    
                 }
             }
             //タイルの選択
             if (pieceSelectIsDone)
             {
+                isSickAnimals = false;
                 if (selectedPlyrPiece != null)
                 {
                     EffectOn(selectedPlyrPiece.transform.position);
@@ -150,12 +164,14 @@ public class GameManager : MonoBehaviour
                     {
                         if (MovableTiles.Contains(hit.collider.gameObject.transform.position)&&!stopSelect)
                         {
+                            PlyrsPos.Remove(selectedPlyrPiece.transform.position);                            
                             selectedPlyrPiece.transform.position=hit.collider.gameObject.transform.position;
+                            PlyrsPos.Add(selectedPlyrPiece.transform.position);
+
                             TileOpen(hit.collider.gameObject);                            
                             if(!isDead)
                             {
-                                ContinueAskPannel.SetActive(true);
-                                ContinueAskText.text = "探検を続けますか？";
+                                continueAskPannel.SetActive(true);
                                 stopSelect = true;
                             }                            
                         }                       
@@ -163,33 +179,34 @@ public class GameManager : MonoBehaviour
                 }
 
                 if (isDead)
-                {                   
-                    ContinueAskPannel.SetActive(false);
+                {
+                    Dead();
                     NewTurnStart();
-                }                
-                
+                } 
             }
         }
     }
     void NewTurnStart()
     {
-        Dead();
         turn++;
         PNIsDone = false;
         pieceSelectIsDone = false;
         isDead = false;
-        isSick = false;
         selectedPlyrPiece = null;
         dangerCount = 0;
         phase = 1;
+        isSickAnimals = false;
     }
     void TurnChecker()
     {
         plyr = turn % playerNum;
-        whoseTurn = plyr + 1;
-        turnLabel.text = $"現在はプレーヤー{whoseTurn}の番です。"+turn;        
+        whoseTurn = plyr;
+        if (plyr == 0)
+        {
+            whoseTurn = playerNum;
+        }
+        turnLabel.text = $"現在はプレーヤー{whoseTurn}の番です。 手番カウント"+turn;        
     }
-
 
     void PlyrNotification()
     {
@@ -243,7 +260,7 @@ public class GameManager : MonoBehaviour
                 if (danger <1)
                 {
                     dangerCount++;
-                    isSick = true;
+                    isSickAnimals = true;
                     DangerNotice();
                     
                     if (isDead)
@@ -259,22 +276,13 @@ public class GameManager : MonoBehaviour
                 {
                     number = 2;
                 }
-                int[] animalCaptured = new int[number];
-                //情報をもとに動物の情報を保存
-                for (int i =0; i < number; i++)
+                int[] animalCapturedSteppe = new int[number];
+                for (int i = 0;i<number;i++)
                 {
-                    
-                    type = Random.Range(0, 2);
-                    animalCaptured[i]= 10+type;
+                    animalCapturedSteppe[i] = 10 + Random.Range(0, 2);
                 }
-                if (isSick)
-                {
-                    AnimalWithDisease.Add(animalCaptured);
-                }
-                else
-                {
-                    AnimalCapturedList[plyr].Add(animalCaptured);
-                }
+                AnimalAdd(animalCapturedSteppe);
+                AnimalCapturedAnnounce();
                 Destroy(tile);
 
                 break;
@@ -285,7 +293,7 @@ public class GameManager : MonoBehaviour
                 if(danger < 2)
                 {
                     dangerCount++;
-                    isSick = true;
+                    isSickAnimals = true;
                     DangerNotice();
 
                     if (isDead)
@@ -301,6 +309,13 @@ public class GameManager : MonoBehaviour
                 {
                     number = 2;
                 }
+                int[] animalCapturedRiver = new int[number];
+                for (int i = 0; i < number; i++)
+                {
+                    animalCapturedRiver[i] = 20 + Random.Range(0, 2);
+                }
+                AnimalAdd(animalCapturedRiver);
+                AnimalCapturedAnnounce();
                 Destroy(tile);
                 break;
             case "Mountain":
@@ -310,7 +325,7 @@ public class GameManager : MonoBehaviour
                 if(danger < 3)
                 {
                     dangerCount++;
-                    isSick = true;
+                    isSickAnimals = true;
                     DangerNotice();
 
                     if (isDead)
@@ -326,20 +341,70 @@ public class GameManager : MonoBehaviour
                 {
                     number = 2;
                 }
+                int[] animalCapturedMountain = new int[number];
+                for (int i = 0; i < number; i++)
+                {
+                    animalCapturedMountain[i] = 30 + Random.Range(0, 2);
+                }
+                AnimalAdd(animalCapturedMountain);
+                AnimalCapturedAnnounce();
                 Destroy(tile);
                 break;
         }
     }
     //タイルの中身の結果のリストへの追加
-
-
-    //タイルの中身の表示
-    void ShowCapturedAnimal()
+    void AnimalAdd(int [] capturedAnimals)
     {
-        masterNoticeText.text = "";
+        if (isSickAnimals)
+        {
+            AnimalWithDiseaseList[plyr].Add(capturedAnimals);            
+            isSickAnimals = false;
+        }
+        else
+        {
+            AnimalCapturedList[plyr].Add(capturedAnimals);
+        }
+    }
+    public void AnimalCapturedAnnounce()
+    {
+        capturedAnimalAnnouncePanel.SetActive(true);
+        int turnPlyr = plyr + 1;
+        string animals = "プレイヤー" + turnPlyr + "さんの場合\n";
+        if (AnimalCapturedList[plyr].Count > 0)
+        {
+            for (int i = 0; i < AnimalCapturedList[plyr].Count; i++)
+            {
+                for (int j = 0; j < AnimalCapturedList[plyr][i].Length; j++)
+                {
+                    animals += animalInfo[AnimalCapturedList[plyr][i][j]] + "\n";
+                }
+            }
+        }
+        animals += "↓病気の動物たち↓\n";
+        if (AnimalWithDiseaseList[plyr].Count > 0)
+        {
+            for (int i = 0; i < AnimalWithDiseaseList[plyr].Count; i++)
+            {
+                for (int j = 0; j < AnimalWithDiseaseList[plyr][i].Length; j++)
+                {
+                    animals += animalInfo[AnimalWithDiseaseList[plyr][i][j]] + "\n";
+                }
+            }
+        }        
+        animalText.text = animals;
+    }
+    
+    public void ShowCaptureAnimalBtnClicked()
+    {        
+        AnimalCapturedAnnounce();
     }
 
-    void MasterNoticePanelButtonClicked()
+    public void CapAniBtnClicked()
+    {
+        capturedAnimalAnnouncePanel.SetActive(false);
+    }
+
+     void MasterNoticePanelButtonClicked()
     {
         masterNoticePanel.SetActive(false);
     }
@@ -356,9 +421,9 @@ public class GameManager : MonoBehaviour
     }
     void Dead()
     {
+        AnimalWithDiseaseList.Clear();
         PlayerPieceCheck();
         stopSelect = false;
-        NewTurnStart();
     }
 
     void PlayerPieceCheck()
@@ -369,7 +434,7 @@ public class GameManager : MonoBehaviour
             bool isEmpty = true;
             for (int i = 0; i < playerNum; i++)
             {
-                if (int.Parse(selectedPlyrPiece.tag) == 1)
+                if (cg.plyrPieceLeft[i, int.Parse(selectedPlyrPiece.tag)] == 1)
                 {
                     isEmpty = false;
                     break;
@@ -380,26 +445,44 @@ public class GameManager : MonoBehaviour
                 PlyrsPos.Remove(selectedPlyrPiece.transform.position);
                 Destroy(selectedPlyrPiece);
             }
-        }       
+        }        
     }
-
     public void ContinueBtnClicked()
     {
-        ContinueAskPannel.SetActive(false);
+        continueAskPannel.SetActive(false);
         stopSelect = false;
     }
-
     public void EndBtnClicked()
     {
-        ContinueAskPannel.SetActive(false);
-        stopSelect = false;
+        continueAskPannel.SetActive(false);
+        if (AnimalWithDiseaseList[plyr].Count > 0)
+        {
+            for(int i = 0;i < AnimalWithDiseaseList[plyr].Count; i++)
+            {
+                AnimalCapturedList[plyr].Add(AnimalWithDiseaseList[plyr][i]);
+            }
+        }
+        Dead();
+        NewTurnStart();
+    }    
+    public void PassBtnClicked()
+    {
+        passConfirmPanel.SetActive(true);
+    }
+    public void PassYesClicked()
+    {
+        passConfirmPanel.SetActive(false);
+        Dead();
         NewTurnStart();
     }
-    
-    void plyrPieceDestroyCheck()
+    public void PassNoClicked()
     {
-        
+        passConfirmPanel.SetActive(false);
     }
-
+    public void MasterNoticePanelClicked()
+    {
+        masterNoticePanel.SetActive(false);
+        stopSelect = false;
+    }
 }
 //改善点エフェクトが毎フレームごとに増加していくので、それをコルーチンにして一定時間あたりに生成する数を制御する。
